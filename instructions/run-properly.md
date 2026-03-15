@@ -1,40 +1,48 @@
 # run-properly
 
-This setup works by intercepting the physical keyboard on the Ubuntu host before VMware can hand the keystroke stream to the Windows guest. The interception is done by `keyd`, which is a low-level Linux key remapping daemon. A second layer, `keyd-application-mapper`, narrows the special behavior to the VMware window only. Because of that division of labor, normal host behavior stays intact outside VMware, while `Ctrl+Shift+D` and `Ctrl+Space` are reclaimed by the host when VMware is focused.
+This setup makes Ubuntu handle two shortcuts before VMware can give them to the Windows guest:
 
-To use it correctly, think in terms of prerequisites first, then the normal path, then verification.
+1. `Ctrl+Shift+D`
+2. `Ctrl+Space`
 
-1. Make sure the host itself already has meanings for the shortcuts you want to reclaim. This setup passes the exact same key combinations back to Ubuntu. It does not invent new host actions. On the original machine, GNOME already had a custom shortcut for `Ctrl+Shift+D`, and IBus claimed `Ctrl+Space`.
-2. Make sure you have logged out and logged back in after running the installer. That matters because the installer adds your user to the `keyd` group, and Linux only applies new group membership to a fresh login session.
-3. Make sure the host session is Ubuntu GNOME on `X11`, not Wayland. This particular setup intentionally forces the application mapper down its `X11` path because VMware window detection is simpler and more predictable there.
-4. Start your normal desktop session. The file [keyd-application-mapper.desktop](/home/cam/.config/autostart/keyd-application-mapper.desktop) should start the mapper automatically at login.
-5. Start VMware Workstation and focus the Windows guest.
-6. Press physical `Ctrl+Shift+D` or `Ctrl+Space`. The intended result is that Ubuntu receives the same combination first and runs the host-side shortcut action, while Windows does not receive that combination.
+It works by running a low-level `keyd` service on the host. That service catches the physical key press and runs a host-side bridge script.
 
-If you want to confirm that the pieces are running, use these checks:
+The active shortcuts are:
+
+1. `Ctrl+Shift+D` -> `/home/cam/.local/bin/wsi-manual-toggle`
+2. `Ctrl+Space` -> `/usr/bin/ulauncher-toggle`
+
+To use the setup:
+
+1. Make sure both host commands work when you run them directly.
+2. Make sure you have already run the installer script once:
+
+```bash
+sudo "$HOME/Applications/keyd-host-shortcuts/install-system.sh"
+```
+
+3. Log out and log back in once after running the installer. This is required because your user must pick up membership in the `keyd` group.
+4. Log into Ubuntu normally. The autostart entry will apply the shortcut bindings automatically.
+5. Start VMware Workstation.
+6. Focus the Windows guest.
+7. Press `Ctrl+Shift+D` or `Ctrl+Space`.
+
+Expected result:
+
+1. Ubuntu runs the matching host action.
+2. Windows does not receive that shortcut.
+
+Quick checks:
 
 ```bash
 systemctl status keyd
+id -nG
+tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/wsi-manual-toggle-bridge.log"
+tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/ulauncher-toggle-bridge.log"
 ```
 
-This command asks `systemd`, which is Ubuntu’s service manager, whether the low-level `keyd` daemon is installed and running.
+What these commands tell you:
 
-```bash
-pgrep -af keyd-application-mapper
-```
-
-This command looks for the application mapper process. If it is present, the VMware-only binding layer is active in your login session.
-
-```bash
-tail -n 50 "$HOME/.config/keyd/app.log"
-```
-
-This command reads the recent mapper log output. It is useful because the mapper writes window-focus changes and binding updates there after it is daemonized.
-
-```bash
-dconf dump /org/gnome/settings-daemon/plugins/media-keys/
-```
-
-This command shows GNOME’s media-key and custom-shortcut database. It is the authoritative place to verify host-side GNOME shortcuts such as `Ctrl+Shift+D`.
-
-If `Ctrl+Shift+D` or `Ctrl+Space` still reaches Windows, the most common causes are that you have not logged out since installation, the mapper did not start, or the host session is not `X11`.
+1. `systemctl status keyd` confirms that the low-level service is running.
+2. `id -nG` confirms that your user session includes the `keyd` group.
+3. The two `tail` commands show whether the bridge scripts were triggered.

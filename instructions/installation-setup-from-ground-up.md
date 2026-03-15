@@ -1,26 +1,32 @@
 # installation-setup-from-ground-up
 
-The goal is to make Ubuntu win the race for `Ctrl+Shift+D` and `Ctrl+Space` when VMware is focused, while still preserving the exact same key combinations on the host. The method is to install `keyd` from source in `$HOME/Applications/keyd-host-shortcuts`, define VMware-specific bindings that re-emit those shortcuts on the host, and start an application-aware mapper at login so the interception only applies to VMware windows.
+This guide installs the exact setup used here. The result is:
 
-This guide assumes the following environment:
+1. `Ctrl+Shift+D` runs `/home/cam/.local/bin/wsi-manual-toggle` on the Ubuntu host
+2. `Ctrl+Space` runs `/usr/bin/ulauncher-toggle` on the Ubuntu host
+3. Both shortcuts are caught by Ubuntu before VMware gives them to the Windows guest
 
-1. The host is Ubuntu GNOME on `X11`.
-2. VMware Workstation runs on the host and the guest is Windows.
-3. Every machine has an `$HOME/Applications` directory.
-4. The host already has, or will be given, real meanings for `Ctrl+Shift+D` and `Ctrl+Space`.
+Assumptions:
 
-Before you begin, verify or create the host shortcuts themselves. This setup only forwards the exact key combinations to the host. If the host does not already use a given shortcut, then the forwarding will work but nothing visible will happen. On GNOME, the simplest way to check for custom shortcuts such as `Ctrl+Shift+D` is `Settings` -> `Keyboard` -> `View and Customize Shortcuts` -> `Custom Shortcuts`. For `Ctrl+Space`, also check any input-method framework, because IBus often claims that combination.
+1. The host is Ubuntu
+2. VMware Workstation is running on the host
+3. The guest is Windows
+4. `$HOME/Applications` exists, or you are willing to create it
+5. `/home/cam/.local/bin/wsi-manual-toggle` already exists and works
+6. `/usr/bin/ulauncher-toggle` already exists and works
 
-## 1. Install the build and runtime prerequisites
+If your `wsi-manual-toggle` command lives somewhere else on another PC, change `TARGET_BIN` in `bridge-wsi-manual-toggle.sh` before you use the setup.
+
+## 1. Install build tools
 
 ```bash
 sudo apt update
-sudo apt install -y git build-essential pkg-config python3-venv python3-pip
+sudo apt install -y git build-essential pkg-config
 ```
 
-The first command refreshes Ubuntu’s package index so the package manager knows what versions are available. The second command installs the tools needed to clone the source code, compile `keyd`, and create a small Python virtual environment for the VMware window mapper.
+This installs the tools needed to download and build `keyd`.
 
-## 2. Clone the source tree into `$HOME/Applications`
+## 2. Clone `keyd` into `$HOME/Applications`
 
 ```bash
 mkdir -p "$HOME/Applications"
@@ -29,7 +35,7 @@ git clone https://github.com/rvaiya/keyd.git keyd-host-shortcuts
 cd "$HOME/Applications/keyd-host-shortcuts"
 ```
 
-These commands create the application directory if it does not already exist, switch into it, clone the upstream `keyd` source code, and then move into the cloned repository.
+This creates the application directory, downloads the source, and moves into it.
 
 ## 3. Build `keyd`
 
@@ -37,31 +43,18 @@ These commands create the application directory if it does not already exist, sw
 make
 ```
 
-This compiles `keyd` from source and produces the main binaries in the local `bin/` directory. The important result is `$HOME/Applications/keyd-host-shortcuts/bin/keyd`.
-
-## 4. Create a local Python environment for the application mapper
+This creates the local `keyd` binary at:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install python-xlib
-deactivate
+$HOME/Applications/keyd-host-shortcuts/bin/keyd
 ```
 
-The first command creates an isolated Python environment inside the project directory. The second command activates it for the current shell. The third command installs `python-xlib`, which lets the mapper inspect the focused `X11` window so it can apply rules only to VMware. The fourth command exits the virtual environment cleanly.
-
-## 5. Create the base `keyd` config
-
-Run this command exactly:
+## 4. Create the base config
 
 ```bash
 mkdir -p "$HOME/Applications/keyd-host-shortcuts/config"
 cat > "$HOME/Applications/keyd-host-shortcuts/config/default.conf" <<'EOF'
 # Minimal base keyd configuration.
-#
-# The main layer is left unchanged. We only define the composite layer below so
-# the application mapper can attach Ctrl+Shift-specific bindings when VMware is
-# the focused host window.
 
 [ids]
 *
@@ -71,56 +64,9 @@ f24 = noop
 EOF
 ```
 
-This creates the configuration directory and writes the base `keyd` configuration file. The wildcard `*` in `[ids]` tells `keyd` to manage all keyboard devices it recognizes. The `[control+shift]` layer is defined so the mapper can later attach a `control+shift.d` rule safely.
+This is the minimum config needed for the shortcuts used here.
 
-## 6. Create the mapper launcher script
-
-Run this command exactly:
-
-```bash
-cat > "$HOME/Applications/keyd-host-shortcuts/run-keyd-application-mapper.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR"
-SOCKET_PATH="/var/run/keyd.socket"
-
-export KEYD_BIN="$APP_DIR/bin/keyd"
-
-# Force the mapper onto its X11 backend. On a GNOME-on-X11 session, that is
-# simpler and avoids the GNOME extension path entirely.
-export XDG_CURRENT_DESKTOP="x11"
-unset GNOME_SETUP_DISPLAY || true
-
-for _ in $(seq 1 60); do
-    if [ -S "$SOCKET_PATH" ]; then
-        break
-    fi
-    sleep 1
-done
-
-if [ ! -S "$SOCKET_PATH" ]; then
-    printf 'keyd socket %s did not appear within 60 seconds.\n' "$SOCKET_PATH" >&2
-    exit 1
-fi
-
-if ! "$KEYD_BIN" bind reset >/dev/null 2>&1; then
-    printf 'Cannot access %s. If keyd was just installed, log out and back in so the keyd group takes effect.\n' "$SOCKET_PATH" >&2
-    exit 1
-fi
-
-exec "$APP_DIR/.venv/bin/python" "$APP_DIR/bin/keyd-application-mapper" -d
-EOF
-
-chmod +x "$HOME/Applications/keyd-host-shortcuts/run-keyd-application-mapper.sh"
-```
-
-This writes the wrapper that starts the application mapper in the correct environment and then makes the script executable.
-
-## 7. Create the privileged installer script
-
-Run this command exactly:
+## 5. Create the installer script
 
 ```bash
 cat > "$HOME/Applications/keyd-host-shortcuts/install-system.sh" <<'EOF'
@@ -175,41 +121,225 @@ systemctl restart keyd
 printf '\nkeyd service status:\n'
 systemctl --no-pager --full status keyd | sed -n '1,12p'
 
-printf '\nThe system service is installed. Log out and back in before using the mapper so %s picks up the keyd group.\n' "$TARGET_USER"
+printf '\nThe system service is installed. Log out and back in before using the shortcuts so %s picks up the keyd group.\n' "$TARGET_USER"
 EOF
 
 chmod +x "$HOME/Applications/keyd-host-shortcuts/install-system.sh"
 ```
 
-This writes the script that performs the root-only part of the installation, then marks it executable.
+This script installs the system service and adds your user to the `keyd` group.
 
-## 8. Create the VMware-specific host forwarding rule
-
-Run this command exactly:
+## 6. Create the `Ctrl+Shift+D` bridge
 
 ```bash
-mkdir -p "$HOME/.config/keyd"
-cat > "$HOME/.config/keyd/app.conf" <<'EOF'
-# Apply host-only shortcuts only when VMware Workstation is the focused host
-# window. The normalized X11 class for Workstation is "vmware".
+cat > "$HOME/Applications/keyd-host-shortcuts/bridge-wsi-manual-toggle.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-[vmware]
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR"
+LOG_DIR="$APP_DIR/logs"
+LOG_FILE="$LOG_DIR/wsi-manual-toggle-bridge.log"
 
-# Intercept physical Ctrl+Shift+D and re-emit the exact same combination on
-# the host so Ubuntu can handle its own global shortcut before Windows sees it.
-control+shift.d = C-S-d
+mkdir -p "$LOG_DIR"
 
-# Intercept physical Ctrl+Space and re-emit the exact same combination on the
-# host so host-side consumers such as IBus can handle it before Windows sees it.
-control+space = C-space
+log() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE"
+}
+
+TARGET_USER="$(stat -c %U "$APP_DIR")"
+TARGET_UID="$(id -u "$TARGET_USER")"
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_BIN="$TARGET_HOME/.local/bin/wsi-manual-toggle"
+TARGET_PATH="$TARGET_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+if [ ! -x "$TARGET_BIN" ]; then
+    log "target command missing or not executable: $TARGET_BIN"
+    exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec "$TARGET_BIN"
+fi
+
+find_active_session() {
+    while read -r sid uid user _rest; do
+        [ "$uid" = "$TARGET_UID" ] || continue
+        [ "$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" = "yes" ] || continue
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] || continue
+        echo "$sid"
+        return 0
+    done < <(loginctl list-sessions --no-legend)
+    return 1
+}
+
+SESSION_ID="$(find_active_session || true)"
+if [ -z "$SESSION_ID" ]; then
+    log "no active graphical session found for user $TARGET_USER"
+    exit 1
+fi
+
+LEADER_PID="$(loginctl show-session "$SESSION_ID" -p Leader --value 2>/dev/null || true)"
+if [ -z "$LEADER_PID" ] || [ ! -r "/proc/$LEADER_PID/environ" ]; then
+    log "cannot read environment for session $SESSION_ID leader $LEADER_PID"
+    exit 1
+fi
+
+SESSION_ENV="$(tr '\0' '\n' < "/proc/$LEADER_PID/environ" || true)"
+DISPLAY_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DISPLAY=//p' | head -n1)"
+XDG_RUNTIME_DIR_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XDG_RUNTIME_DIR=//p' | head -n1)"
+DBUS_SESSION_BUS_ADDRESS_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -n1)"
+
+if [ -z "$XDG_RUNTIME_DIR_VALUE" ]; then
+    XDG_RUNTIME_DIR_VALUE="/run/user/$TARGET_UID"
+fi
+
+if [ -z "$DBUS_SESSION_BUS_ADDRESS_VALUE" ]; then
+    DBUS_SESSION_BUS_ADDRESS_VALUE="unix:path=$XDG_RUNTIME_DIR_VALUE/bus"
+fi
+
+log "invoking $TARGET_BIN as $TARGET_USER via session $SESSION_ID leader $LEADER_PID display ${DISPLAY_VALUE:-<unset>}"
+
+exec /usr/sbin/runuser -u "$TARGET_USER" -- env \
+    HOME="$TARGET_HOME" \
+    USER="$TARGET_USER" \
+    LOGNAME="$TARGET_USER" \
+    PATH="$TARGET_PATH" \
+    DISPLAY="$DISPLAY_VALUE" \
+    XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR_VALUE" \
+    DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS_VALUE" \
+    "$TARGET_BIN"
 EOF
+
+chmod +x "$HOME/Applications/keyd-host-shortcuts/bridge-wsi-manual-toggle.sh"
 ```
 
-This writes the mapper configuration in your home directory. The `[vmware]` section means the rule only activates when the focused window class is VMware.
+This script is what `keyd` runs when you press `Ctrl+Shift+D`.
 
-## 9. Create the autostart entry
+## 7. Create the `Ctrl+Space` bridge
 
-Run this command exactly:
+```bash
+cat > "$HOME/Applications/keyd-host-shortcuts/bridge-ulauncher-toggle.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR"
+LOG_DIR="$APP_DIR/logs"
+LOG_FILE="$LOG_DIR/ulauncher-toggle-bridge.log"
+
+mkdir -p "$LOG_DIR"
+
+log() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE"
+}
+
+TARGET_USER="$(stat -c %U "$APP_DIR")"
+TARGET_UID="$(id -u "$TARGET_USER")"
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_BIN="/usr/bin/ulauncher-toggle"
+TARGET_PATH="$TARGET_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+if [ ! -x "$TARGET_BIN" ]; then
+    log "target command missing or not executable: $TARGET_BIN"
+    exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec "$TARGET_BIN"
+fi
+
+find_active_session() {
+    while read -r sid uid user _rest; do
+        [ "$uid" = "$TARGET_UID" ] || continue
+        [ "$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" = "yes" ] || continue
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] || continue
+        echo "$sid"
+        return 0
+    done < <(loginctl list-sessions --no-legend)
+    return 1
+}
+
+SESSION_ID="$(find_active_session || true)"
+if [ -z "$SESSION_ID" ]; then
+    log "no active graphical session found for user $TARGET_USER"
+    exit 1
+fi
+
+LEADER_PID="$(loginctl show-session "$SESSION_ID" -p Leader --value 2>/dev/null || true)"
+if [ -z "$LEADER_PID" ] || [ ! -r "/proc/$LEADER_PID/environ" ]; then
+    log "cannot read environment for session $SESSION_ID leader $LEADER_PID"
+    exit 1
+fi
+
+SESSION_ENV="$(tr '\0' '\n' < "/proc/$LEADER_PID/environ" || true)"
+DISPLAY_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DISPLAY=//p' | head -n1)"
+XDG_RUNTIME_DIR_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XDG_RUNTIME_DIR=//p' | head -n1)"
+DBUS_SESSION_BUS_ADDRESS_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -n1)"
+
+if [ -z "$XDG_RUNTIME_DIR_VALUE" ]; then
+    XDG_RUNTIME_DIR_VALUE="/run/user/$TARGET_UID"
+fi
+
+if [ -z "$DBUS_SESSION_BUS_ADDRESS_VALUE" ]; then
+    DBUS_SESSION_BUS_ADDRESS_VALUE="unix:path=$XDG_RUNTIME_DIR_VALUE/bus"
+fi
+
+log "invoking $TARGET_BIN as $TARGET_USER via session $SESSION_ID leader $LEADER_PID display ${DISPLAY_VALUE:-<unset>}"
+
+exec /usr/sbin/runuser -u "$TARGET_USER" -- env \
+    HOME="$TARGET_HOME" \
+    USER="$TARGET_USER" \
+    LOGNAME="$TARGET_USER" \
+    PATH="$TARGET_PATH" \
+    DISPLAY="$DISPLAY_VALUE" \
+    XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR_VALUE" \
+    DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS_VALUE" \
+    "$TARGET_BIN"
+EOF
+
+chmod +x "$HOME/Applications/keyd-host-shortcuts/bridge-ulauncher-toggle.sh"
+```
+
+This script is what `keyd` runs when you press `Ctrl+Space`.
+
+## 8. Create the login-time binder
+
+```bash
+cat > "$HOME/Applications/keyd-host-shortcuts/apply-global-shortcuts.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR"
+SOCKET_PATH="/var/run/keyd.socket"
+KEYD_BIN="$APP_DIR/bin/keyd"
+BRIDGE="$APP_DIR/bridge-wsi-manual-toggle.sh"
+ULAUNCHER_BRIDGE="$APP_DIR/bridge-ulauncher-toggle.sh"
+
+for _ in $(seq 1 60); do
+    if [ -S "$SOCKET_PATH" ]; then
+        break
+    fi
+    sleep 1
+done
+
+if [ ! -S "$SOCKET_PATH" ]; then
+    printf 'keyd socket %s did not appear within 60 seconds.\n' "$SOCKET_PATH" >&2
+    exit 1
+fi
+
+"$KEYD_BIN" bind reset \
+    "control+shift.d = command($BRIDGE)" \
+    "control.space = command($ULAUNCHER_BRIDGE)"
+EOF
+
+chmod +x "$HOME/Applications/keyd-host-shortcuts/apply-global-shortcuts.sh"
+```
+
+This script reapplies the two bindings every time you log in.
+
+## 9. Create the GNOME autostart entry
 
 ```bash
 mkdir -p "$HOME/.config/autostart"
@@ -217,51 +347,55 @@ cat > "$HOME/.config/autostart/keyd-application-mapper.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=keyd Application Mapper
-Comment=Apply VMware-specific host shortcuts through keyd
-Exec=/bin/sh -lc "$HOME/Applications/keyd-host-shortcuts/run-keyd-application-mapper.sh"
+Name=keyd Host Shortcuts
+Comment=Apply global host shortcut bridges through keyd
+Exec=/bin/sh -lc "$HOME/Applications/keyd-host-shortcuts/apply-global-shortcuts.sh"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
 ```
 
-This makes the application mapper start automatically when you log into GNOME.
+This makes GNOME run the binder automatically at login.
 
-## 10. Validate the base config before touching system files
+## 10. Validate the base config
 
 ```bash
 "$HOME/Applications/keyd-host-shortcuts/bin/keyd" check "$HOME/Applications/keyd-host-shortcuts/config/default.conf"
 ```
 
-This asks `keyd` to parse the base config and report errors. It is a cheap safety check before the privileged install step.
+This checks for syntax errors before the privileged install step.
 
-## 11. Perform the privileged installation
+## 11. Install the system service
 
 ```bash
 sudo "$HOME/Applications/keyd-host-shortcuts/install-system.sh"
 ```
 
-This command runs the installer script with administrator privileges. That is necessary because Linux protects the keyboard event devices and because the `keyd` daemon must be installed as a system service.
+This installs and starts `keyd`, and adds your user to the `keyd` group.
 
 ## 12. Log out and log back in
 
-Do this as a real desktop logout, not just by closing a terminal. The logout matters because your user must re-enter the session with membership in the `keyd` group.
+This step is required. Without it, your current desktop session does not know that your user was added to the `keyd` group.
 
-## 13. Verify the final state
-
-After logging back in, run:
+## 13. Verify the setup
 
 ```bash
 systemctl status keyd
-pgrep -af keyd-application-mapper
-dconf dump /org/gnome/settings-daemon/plugins/media-keys/
+id -nG
+tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/wsi-manual-toggle-bridge.log"
+tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/ulauncher-toggle-bridge.log"
 ```
 
-The first command checks the low-level daemon. The second checks the VMware-aware mapper in your user session. The third verifies that the host really has the shortcuts you expect defined, whether through GNOME custom shortcuts, IBus, or another host-side consumer.
+What these commands verify:
 
-## 14. Test the behavior
+1. `keyd` is running
+2. Your login session includes the `keyd` group
+3. The bridge scripts are being triggered
+
+## 14. Test it
 
 1. Start VMware Workstation.
 2. Focus the Windows guest.
-3. Press physical `Ctrl+Shift+D` and physical `Ctrl+Space` separately.
-4. Confirm that Ubuntu handles each host shortcut and Windows does not receive either one.
+3. Press `Ctrl+Shift+D`.
+4. Press `Ctrl+Space`.
+5. Confirm that Ubuntu runs the host action and Windows does not receive the shortcut.
