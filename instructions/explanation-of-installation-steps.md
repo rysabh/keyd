@@ -32,7 +32,7 @@ This script handles `Ctrl+Shift+D`. `keyd` runs command bindings as root, so the
 /home/cam/.local/bin/wsi-manual-toggle
 ```
 
-It also writes a log file so you can see whether the shortcut fired.
+It also writes a log file under `$HOME/.local/state/keyd-host-shortcuts/` so you can see whether the shortcut fired.
 
 ## `bridge-ulauncher-toggle.sh`
 
@@ -42,7 +42,7 @@ This script handles `Ctrl+Space`. It uses the same pattern as the first bridge s
 /usr/bin/ulauncher-toggle
 ```
 
-It also writes a log file.
+It also writes a log file under `$HOME/.local/state/keyd-host-shortcuts/`.
 
 ## `apply-global-shortcuts.sh`
 

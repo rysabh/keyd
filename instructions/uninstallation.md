@@ -46,13 +46,21 @@ This stops Ubuntu from reapplying the shortcut bindings at login.
 rm -rf "$HOME/Applications/keyd-host-shortcuts"
 ```
 
-This removes the local `keyd` build, the helper scripts, the logs, and these instruction files.
+This removes the local `keyd` build, the helper scripts, and these instruction files.
 
-## 6. Log out and log back in
+## 6. Remove the runtime state directory
+
+```bash
+rm -rf "$HOME/.local/state/keyd-host-shortcuts"
+```
+
+This removes the bridge log files that are written outside the repo.
+
+## 7. Log out and log back in
 
 This refreshes your desktop session so it drops the old `keyd` group membership and any leftover session state.
 
-## 7. Verify removal
+## 8. Verify removal
 
 ```bash
 systemctl status keyd

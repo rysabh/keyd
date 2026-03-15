@@ -10,3 +10,4 @@ __pycache__
 test.log
 keyd.service
 .venv
+logs/

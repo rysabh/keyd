@@ -382,8 +382,8 @@ This step is required. Without it, your current desktop session does not know th
 ```bash
 systemctl status keyd
 id -nG
-tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/wsi-manual-toggle-bridge.log"
-tail -n 50 "$HOME/Applications/keyd-host-shortcuts/logs/ulauncher-toggle-bridge.log"
+tail -n 50 "$HOME/.local/state/keyd-host-shortcuts/wsi-manual-toggle-bridge.log"
+tail -n 50 "$HOME/.local/state/keyd-host-shortcuts/ulauncher-toggle-bridge.log"
 ```
 
 What these commands verify:

@@ -3,10 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR"
-LOG_DIR="$APP_DIR/logs"
-LOG_FILE="$LOG_DIR/wsi-manual-toggle-bridge.log"
-
-mkdir -p "$LOG_DIR"
 
 log() {
     printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE"
@@ -17,6 +13,10 @@ TARGET_UID="$(id -u "$TARGET_USER")"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 TARGET_BIN="$TARGET_HOME/.local/bin/wsi-manual-toggle"
 TARGET_PATH="$TARGET_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+STATE_DIR="$TARGET_HOME/.local/state/keyd-host-shortcuts"
+LOG_FILE="$STATE_DIR/wsi-manual-toggle-bridge.log"
+
+mkdir -p "$STATE_DIR"
 
 if [ ! -x "$TARGET_BIN" ]; then
     log "target command missing or not executable: $TARGET_BIN"
