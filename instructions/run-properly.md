@@ -7,6 +7,8 @@ This setup makes Ubuntu handle two shortcuts before VMware can give them to the 
 
 It works by running a low-level `keyd` service on the host. That service catches the physical key press and runs a host-side bridge script.
 
+For Ulauncher, the preferred approach is a direct command bridge. The setup does not try to re-emit `Ctrl+Space` as a host key event. It runs `/usr/bin/ulauncher-toggle` inside the host desktop session, because that is the same command path that already works correctly when launched by hand.
+
 The active shortcuts are:
 
 1. `Ctrl+Shift+D` -> `/home/cam/.local/bin/wsi-manual-toggle`

@@ -42,7 +42,7 @@ This script handles `Ctrl+Space`. It uses the same pattern as the first bridge s
 /usr/bin/ulauncher-toggle
 ```
 
-It also writes a log file under `$HOME/.local/state/keyd-host-shortcuts/`.
+It also writes a log file under `$HOME/.local/state/keyd-host-shortcuts/`. This is the preferred Ulauncher path because the app already provides a working CLI entry point, so the bridge can run the host command directly instead of trying to re-emit the same keybinding into the desktop.
 
 ## `apply-global-shortcuts.sh`
 

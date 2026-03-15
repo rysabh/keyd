@@ -23,11 +23,12 @@ if [ ! -x "$TARGET_BIN" ]; then
     exit 1
 fi
 
+# Allow direct user-side testing without needing the root-owned keyd path.
 if [ "$(id -u)" -ne 0 ]; then
     exec "$TARGET_BIN"
 fi
 
-find_graphical_env_pid() {
+find_active_session() {
     local pattern pid env_dump
 
     for pattern in \
@@ -63,7 +64,7 @@ find_graphical_env_pid() {
     return 1
 }
 
-ENV_PID="$(find_graphical_env_pid || true)"
+ENV_PID="$(find_active_session || true)"
 if [ -z "$ENV_PID" ]; then
     log "no graphical process with DISPLAY or WAYLAND_DISPLAY found for user $TARGET_USER"
     exit 1
@@ -81,6 +82,8 @@ XDG_RUNTIME_DIR_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XDG_RUNTIME_D
 DBUS_SESSION_BUS_ADDRESS_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -n1)"
 XAUTHORITY_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XAUTHORITY=//p' | head -n1)"
 XDG_SESSION_TYPE_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XDG_SESSION_TYPE=//p' | head -n1)"
+DESKTOP_SESSION_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^DESKTOP_SESSION=//p' | head -n1)"
+XDG_CURRENT_DESKTOP_VALUE="$(printf '%s\n' "$SESSION_ENV" | sed -n 's/^XDG_CURRENT_DESKTOP=//p' | head -n1)"
 
 if [ -z "$XDG_RUNTIME_DIR_VALUE" ]; then
     XDG_RUNTIME_DIR_VALUE="/run/user/$TARGET_UID"
@@ -107,4 +110,6 @@ exec /usr/sbin/runuser -u "$TARGET_USER" -- env \
     DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS_VALUE" \
     XAUTHORITY="$XAUTHORITY_VALUE" \
     XDG_SESSION_TYPE="$XDG_SESSION_TYPE_VALUE" \
+    DESKTOP_SESSION="$DESKTOP_SESSION_VALUE" \
+    XDG_CURRENT_DESKTOP="$XDG_CURRENT_DESKTOP_VALUE" \
     "$TARGET_BIN"
